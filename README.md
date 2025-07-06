@@ -1,6 +1,6 @@
-# 🧪 Muzz Frontend Engineering Test
+# 🧪 Test Chat
 
-Welcome to the Muzz Frontend Engineering Test! This is a chat application built with modern web technologies, simulating a real-world codebase. We've provided a starting point with both frontend and backend implementations to help you get started quickly.
+Welcome to the Test Chat! This is a chat application built with modern web technologies, simulating a real-world codebase. We've provided a starting point with both frontend and backend implementations to help you get started quickly.
 
 Your task is to take ownership of this project, refactor and improve the code, fix issues, and implement new features — just like a lead engineer would when inheriting an existing app.
 
