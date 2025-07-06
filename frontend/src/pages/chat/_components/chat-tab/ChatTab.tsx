@@ -1,53 +1,79 @@
-import { useState } from "react";
-import useMessagesStore from "../../../../store/messages.store.ts";
-import useUserStore from "../../../../store/user.store.ts";
-import MessageItem from "./_components/message/MessageItem.tsx";
+import { useEffect, useRef, useCallback } from "react";
+import useMessagesStore, {
+  getConversationKey,
+} from "../../../../store/messages.store";
+import useUserStore from "../../../../store/user.store";
+import { useSocket } from "../../../../hooks/useSocket";
+import { useTyping } from "../../../../hooks/useTyping";
+import { useMessagesLoader } from "../../../../hooks/useMessagesLoader";
+import { ChatContainer } from "./_components/chat-container/ChatContainer";
+import { useChatActions } from "../../../../hooks/useChatAction";
+
+// Stable empty array to prevent re-renders
 
 const ChatTab = () => {
-  const [currentMessage, setCurrentMessage] = useState("");
+  // Store selectors
   const currentUser = useUserStore((state) => state.currentUser);
   const currentRecipient = useUserStore((state) => state.currentRecipient);
-  const messages = useMessagesStore((state) => state.messages);
 
-  const handleMessageSend = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!currentRecipient || !currentMessage.trim()) return;
+  // Calculate conversation key
+  const conversationKey = currentRecipient?.id
+    ? getConversationKey(currentUser.id, currentRecipient.id)
+    : null;
 
-    const newMessage = {
-      senderId: currentUser.id,
-      recipientId: currentRecipient.id,
-      content: currentMessage.trim(),
+  // Get messages directly from store state with stable fallback
+  const messages = useMessagesStore(
+    useCallback(
+      (state) => {
+        if (!conversationKey) return [];
+        return state.conversations[conversationKey] || [];
+      },
+      [conversationKey]
+    )
+  );
+
+  // Hooks
+  const { sendMessage } = useSocket();
+  const { typingUsers, startTyping, stopTyping } = useTyping(
+    currentRecipient?.id
+  );
+
+  // Load messages when recipient changes
+  useMessagesLoader({
+    userId: currentUser.id,
+    recipientId: currentRecipient?.id || 0,
+  });
+
+  // Chat actions
+  const { handleSendMessage, handleTypingChange } = useChatActions({
+    currentUser,
+    currentRecipient: currentRecipient ?? undefined,
+    sendMessage,
+    startTyping,
+    stopTyping,
+  });
+
+  // Store stopTyping ref to use in cleanup
+  const stopTypingRef = useRef(stopTyping);
+  stopTypingRef.current = stopTyping;
+
+  // Clean up typing state when recipient changes
+  useEffect(() => {
+    return () => {
+      stopTypingRef.current();
     };
-
-    setCurrentMessage("");
-  };
+  }, [currentRecipient?.id]);
 
   return (
-    <div className="flex-1 flex flex-col">
-      <div className="flex-1 flex flex-col p-[5px] overflow-auto max-h-[490px]">
-        <div className="mt-auto">
-          {messages.map((message) => (
-            <div key={message.timestamp}>
-              <MessageItem
-                message={message}
-                key={message.id}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="p-[20px] px-[10px]">
-        <form onSubmit={(e) => handleMessageSend(e)} className="flex gap-[10px]">
-          <input
-            type="text"
-            placeholder={`Message ${currentRecipient?.name || ""}`}
-            className="flex-1 rounded-full border-[8px] border-[#cfcfcf] px-[12px] py-[8px]"
-            value={currentMessage}
-            onChange={(e) => setCurrentMessage(e.target.value)}
-          />
-        </form>
-      </div>
-    </div>
+    <ChatContainer
+      messages={messages}
+      currentUserId={currentUser.id}
+      recipientName={currentRecipient?.name}
+      typingUsers={typingUsers}
+      onSendMessage={handleSendMessage}
+      onTypingChange={handleTypingChange}
+      disabled={!currentRecipient}
+    />
   );
 };
 

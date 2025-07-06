@@ -1,4 +1,4 @@
-import type { User } from "../../store/user.store.ts";
+import type { User } from "../../types";
 
 const UserCard = ({ user }: { user: User }) => {
   return (

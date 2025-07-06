@@ -1,10 +1,5 @@
 import { create } from "zustand";
-
-export type User = {
-  id: number;
-  name: string;
-  profile: string;
-};
+import type { User } from "../types";
 
 type UserState = {
   currentUser: User;

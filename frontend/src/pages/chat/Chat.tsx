@@ -15,10 +15,15 @@ const Chat = () => {
   const [activeTab, setActiveTab] = useState<TabId>("chat");
 
   return (
-    <div className="flex flex-col h-full w-full overflow-hidden">
-      <Header />
-      <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
-      <div className="flex-1 flex flex-col">
+    <div className="flex flex-col h-screen w-full">
+      {/* Sticky header and tabs */}
+      <div className="flex-shrink-0 shadow-sm border-b border-gray-300 ">
+        <Header />
+        <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
+      </div>
+      
+      {/* Scrollable content area */}
+      <div className="flex-1 flex flex-col min-h-0">
         {activeTab === "chat" && <ChatTab />}
         {activeTab === "profile" && <ProfileTab />}
       </div>

@@ -1,8 +1,9 @@
 import UserCard from "../../../components/user-card/UserCard.tsx";
 import Button from "../../../components/button/Button.tsx";
 import { useQuery } from "@tanstack/react-query";
-import useUserStore, { type User } from "../../../store/user.store.ts";
+import useUserStore from "../../../store/user.store.ts";
 import usePageStore from "../../../store/page.store.ts";
+import type { User } from "../../../types/index.ts";
 
 const UserList = () => {
 	const currentUser = useUserStore((state) => state.currentUser);

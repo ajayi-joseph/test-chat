@@ -1,37 +1,46 @@
 import { create } from "zustand";
+import type { Message } from "../types";
 
-export type Message = {
-  id: number;
-  senderId: number;
-  recipientId: number;
-  content: string;
-  timestamp: string;
+interface MessagesStore {
+  // All conversations stored by key
+  conversations: Record<string, Message[]>;
+
+  // Actions
+  setConversationMessages: (key: string, messages: Message[]) => void;
+  addMessage: (message: Message) => void;
+}
+
+// Helper to get conversation key
+export const getConversationKey = (userId1: number, userId2: number): string => {
+  const [smaller, larger] =
+    userId1 < userId2 ? [userId1, userId2] : [userId2, userId1];
+  return `conversation_${smaller}_${larger}`;
 };
 
-export type MessageInput = {
-  senderId: number;
-  recipientId: number;
-  content: string;
-};
+const useMessagesStore = create<MessagesStore>((set) => ({
+  conversations: {},
 
-type MessagesState = {
-  messages: Message[];
-  createMessage: (message: MessageInput) => void;
-};
+  setConversationMessages: (key, messages) =>
+    set((state) => ({
+      conversations: {
+        ...state.conversations,
+        [key]: messages,
+      },
+    })),
 
-const useMessagesStore = create<MessagesState>()((set, get) => ({
-  messages: [],
-  createMessage: (message: MessageInput) =>
+  addMessage: (message) => {
+    const key = getConversationKey(message.senderId, message.recipientId);
     set((state) => {
-      const newMessage: Message = {
-        id: state.messages.length + 1,
-        senderId: message.senderId,
-        recipientId: message.recipientId,
-        content: message.content,
-        timestamp: new Date().toISOString(),
+      const messages = state.conversations[key] || [];
+
+      return {
+        conversations: {
+          ...state.conversations,
+          [key]: [...messages, message],
+        },
       };
-      return { messages: [...state.messages, newMessage] };
-    }),
+    });
+  },
 }));
 
 export default useMessagesStore;
