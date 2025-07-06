@@ -10,7 +10,9 @@ interface TypingUser {
 export const useTyping = (recipientId?: number) => {
   const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
   const currentUser = useUserStore((state) => state.currentUser);
-  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  );
   const isTypingRef = useRef(false);
 
   useEffect(() => {
@@ -24,11 +26,11 @@ export const useTyping = (recipientId?: number) => {
       // Only process typing events for the current conversation
       // and don't show our own typing status
       if (data.userId !== currentUser.id) {
-        setTypingUsers(prev => {
+        setTypingUsers((prev) => {
           // Check if user already exists
-          const exists = prev.some(user => user.userId === data.userId);
+          const exists = prev.some((user) => user.userId === data.userId);
           if (exists) {
-            return prev.map(user =>
+            return prev.map((user) =>
               user.userId === data.userId
                 ? { userId: data.userId, userName: data.userName }
                 : user
@@ -44,7 +46,9 @@ export const useTyping = (recipientId?: number) => {
       recipientId: number;
     }) => {
       if (data.userId !== currentUser.id) {
-        setTypingUsers(prev => prev.filter(user => user.userId !== data.userId));
+        setTypingUsers((prev) =>
+          prev.filter((user) => user.userId !== data.userId)
+        );
       }
     };
 
@@ -98,6 +102,15 @@ export const useTyping = (recipientId?: number) => {
       // Don't call stopTyping here as it causes issues with deps
     };
   }, []);
+
+  useEffect(() => {
+    // Reset typing state when recipient changes
+    isTypingRef.current = false;
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = undefined;
+    }
+  }, [recipientId]);
 
   return {
     typingUsers,

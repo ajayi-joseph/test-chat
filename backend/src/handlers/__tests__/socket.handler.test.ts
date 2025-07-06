@@ -1,270 +1,435 @@
+import { Server } from "socket.io";
 import { SocketHandler } from "../socket.handler";
 import { MessageService } from "../../services/message.service";
-import { Server, Socket } from "socket.io";
+
+// Mock socket.io
+jest.mock("socket.io");
+
+interface MockSocket {
+  id: string;
+  userId?: number;
+  rooms: Set<string>;
+  emit: jest.Mock;
+  to: jest.Mock;
+  join: jest.Mock;
+  leave: jest.Mock;
+  on: jest.Mock;
+  removeAllListeners: jest.Mock;
+}
+
+interface Message {
+  id: string;
+  senderId: number;
+  recipientId: number;
+  content: string;
+  timestamp: string;
+}
 
 describe("SocketHandler", () => {
+  let mockIo: jest.Mocked<Server>;
+  let mockSocket: MockSocket;
   let socketHandler: SocketHandler;
-  let mockIo: any;
-  let mockSocket: any;
-  let messageService: MessageService;
+  let mockMessageService: jest.Mocked<MessageService>;
+  let consoleLogSpy: jest.SpyInstance;
 
   beforeEach(() => {
+    // Suppress console.log during tests
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+    
+    // Reset all mocks
+    jest.clearAllMocks();
+
     // Create mock IO server
     mockIo = {
+      to: jest.fn().mockReturnThis(),
       emit: jest.fn(),
-    };
+    } as any;
 
     // Create mock socket
     mockSocket = {
       id: "test-socket-id",
+      rooms: new Set(),
+      emit: jest.fn(),
+      to: jest.fn().mockReturnThis(),
+      join: jest.fn((room: string) => {
+        mockSocket.rooms.add(room);
+      }),
+      leave: jest.fn((room: string) => {
+        mockSocket.rooms.delete(room);
+      }),
       on: jest.fn(),
-      broadcast: {
-        emit: jest.fn(),
-      },
+      removeAllListeners: jest.fn(),
     };
 
-    messageService = new MessageService();
-    socketHandler = new SocketHandler(mockIo as Server, messageService);
+    // Make socket.to return an object with emit method
+    mockSocket.to.mockReturnValue({
+      emit: jest.fn(),
+    });
+
+    // Create mock message service
+    mockMessageService = {
+      addMessage: jest.fn().mockImplementation((data) => ({
+        id: "msg-" + Math.random().toString(36).substr(2, 9),
+        ...data,
+        timestamp: new Date().toISOString(),
+      })),
+    } as any;
+
+    // Initialize socket handler
+    socketHandler = new SocketHandler(mockIo, mockMessageService);
   });
 
-  describe("handleConnection", () => {
-    it("should register all event handlers", () => {
-      socketHandler.handleConnection(mockSocket as Socket);
+  afterEach(() => {
+    // Restore console.log
+    consoleLogSpy.mockRestore();
+  });
 
-      expect(mockSocket.on).toHaveBeenCalledWith(
-        "message:send",
-        expect.any(Function)
-      );
-      expect(mockSocket.on).toHaveBeenCalledWith(
-        "typing:start",
-        expect.any(Function)
-      );
-      expect(mockSocket.on).toHaveBeenCalledWith(
-        "typing:stop",
-        expect.any(Function)
-      );
-      expect(mockSocket.on).toHaveBeenCalledWith(
-        "disconnect",
-        expect.any(Function)
-      );
-      expect(mockSocket.on).toHaveBeenCalledTimes(4);
+  describe("Connection handling", () => {
+    test("should handle client connection", () => {
+      socketHandler.handleConnection(mockSocket as any);
+      
+      // Verify event listeners were registered
+      expect(mockSocket.on).toHaveBeenCalledWith("user:identify", expect.any(Function));
+      expect(mockSocket.on).toHaveBeenCalledWith("conversation:join", expect.any(Function));
+      expect(mockSocket.on).toHaveBeenCalledWith("conversation:leave", expect.any(Function));
+      expect(mockSocket.on).toHaveBeenCalledWith("message:send", expect.any(Function));
+      expect(mockSocket.on).toHaveBeenCalledWith("typing:start", expect.any(Function));
+      expect(mockSocket.on).toHaveBeenCalledWith("typing:stop", expect.any(Function));
+      expect(mockSocket.on).toHaveBeenCalledWith("disconnect", expect.any(Function));
+    });
+
+    test("should handle user identification", () => {
+      socketHandler.handleConnection(mockSocket as any);
+      
+      // Get the callback for user:identify
+      const identifyCallback = mockSocket.on.mock.calls.find(
+        (call) => call[0] === "user:identify"
+      )[1];
+
+      const userId = 123;
+      identifyCallback(userId);
+
+      expect(mockSocket.userId).toBe(userId);
+      expect(mockSocket.emit).toHaveBeenCalledWith("user:identified", {
+        userId,
+        socketId: mockSocket.id,
+      });
     });
   });
 
-  describe("message:send event", () => {
-    it("should add message and broadcast to all clients", () => {
+  describe("Conversation management", () => {
+    test("should join conversation room", () => {
+      socketHandler.handleConnection(mockSocket as any);
+      
+      const joinCallback = mockSocket.on.mock.calls.find(
+        (call) => call[0] === "conversation:join"
+      )[1];
+
+      const data = { userId: 1, recipientId: 2 };
+      joinCallback(data);
+
+      expect(mockSocket.join).toHaveBeenCalledWith("conversation_1_2");
+      expect(mockSocket.to).toHaveBeenCalledWith("conversation_1_2");
+      expect(mockSocket.to().emit).toHaveBeenCalledWith("user:joined", { userId: 1 });
+    });
+
+    test("should join room with consistent naming", () => {
+      socketHandler.handleConnection(mockSocket as any);
+      
+      const joinCallback = mockSocket.on.mock.calls.find(
+        (call) => call[0] === "conversation:join"
+      )[1];
+
+      // Test with reversed user IDs - should produce same room name
+      const data1 = { userId: 2, recipientId: 1 };
+      joinCallback(data1);
+
+      expect(mockSocket.join).toHaveBeenCalledWith("conversation_1_2");
+    });
+
+    test("should leave conversation room", () => {
+      socketHandler.handleConnection(mockSocket as any);
+      
+      const leaveCallback = mockSocket.on.mock.calls.find(
+        (call) => call[0] === "conversation:leave"
+      )[1];
+
+      const data = { userId: 1, recipientId: 2 };
+      leaveCallback(data);
+
+      expect(mockSocket.leave).toHaveBeenCalledWith("conversation_1_2");
+    });
+  });
+
+  describe("Message handling", () => {
+    test("should send message to conversation room", () => {
+      socketHandler.handleConnection(mockSocket as any);
+      
+      const sendCallback = mockSocket.on.mock.calls.find(
+        (call) => call[0] === "message:send"
+      )[1];
+
       const messageData = {
         senderId: 1,
         recipientId: 2,
-        content: "Hello World",
+        content: "Hello, World!",
       };
 
-      // Setup
-      socketHandler.handleConnection(mockSocket);
-      const messageHandler = mockSocket.on.mock.calls.find(
-        (call: any) => call[0] === "message:send"
-      )[1];
+      const expectedMessage: Message = {
+        id: "msg-123",
+        ...messageData,
+        timestamp: new Date().toISOString(),
+      };
 
-      // Execute
-      messageHandler(messageData);
+      mockMessageService.addMessage.mockReturnValueOnce(expectedMessage);
 
-      // Verify
-      expect(mockIo.emit).toHaveBeenCalledWith(
+      sendCallback(messageData);
+
+      expect(mockMessageService.addMessage).toHaveBeenCalledWith(messageData);
+      expect(mockIo.to).toHaveBeenCalledWith("conversation_1_2");
+      expect(mockIo.to("conversation_1_2").emit).toHaveBeenCalledWith(
         "message:new",
-        expect.objectContaining({
-          senderId: messageData.senderId,
-          recipientId: messageData.recipientId,
-          content: messageData.content,
-          id: expect.stringMatching(/^msg_\d+_[a-z0-9]+$/),
-          timestamp: expect.any(String),
-        })
+        expectedMessage
       );
     });
   });
 
-  describe("typing:start event", () => {
+  describe("Typing indicators", () => {
+    let typingStartCallback: Function;
+    let typingStopCallback: Function;
+
     beforeEach(() => {
-      jest.useFakeTimers();
+      socketHandler.handleConnection(mockSocket as any);
+      
+      typingStartCallback = mockSocket.on.mock.calls.find(
+        (call) => call[0] === "typing:start"
+      )[1];
+      
+      typingStopCallback = mockSocket.on.mock.calls.find(
+        (call) => call[0] === "typing:stop"
+      )[1];
     });
 
-    afterEach(() => {
-      jest.useRealTimers();
-    });
-
-    it("should broadcast typing start to other clients", () => {
+    test("should broadcast typing start to room", () => {
       const typingData = {
         userId: 1,
         recipientId: 2,
-        userName: "John",
+        userName: "User 1",
       };
 
-      socketHandler.handleConnection(mockSocket);
-      const typingHandler = mockSocket.on.mock.calls.find(
-        (call: any) => call[0] === "typing:start"
-      )[1];
+      typingStartCallback(typingData);
 
-      typingHandler(typingData);
-
-      expect(mockSocket.broadcast.emit).toHaveBeenCalledWith(
-        "typing:start",
-        typingData
-      );
+      expect(mockSocket.to).toHaveBeenCalledWith("conversation_1_2");
+      expect(mockSocket.to().emit).toHaveBeenCalledWith("typing:start", typingData);
     });
 
-    it("should auto-stop typing after 5 seconds", () => {
+    test("should broadcast typing stop to room", () => {
       const typingData = {
         userId: 1,
         recipientId: 2,
-        userName: "John",
+        userName: "User 1",
       };
 
-      socketHandler.handleConnection(mockSocket);
-      const typingHandler = mockSocket.on.mock.calls.find(
-        (call: any) => call[0] === "typing:start"
-      )[1];
+      typingStopCallback(typingData);
 
-      // Start typing
-      typingHandler(typingData);
-
-      // Verify typing started
-      expect(mockSocket.broadcast.emit).toHaveBeenCalledWith(
-        "typing:start",
-        typingData
-      );
-
-      // Fast-forward 5 seconds
-      jest.advanceTimersByTime(5000);
-
-      // Verify typing stopped automatically
-      expect(mockSocket.broadcast.emit).toHaveBeenCalledWith("typing:stop", {
-        userId: typingData.userId,
-        recipientId: typingData.recipientId,
+      expect(mockSocket.to).toHaveBeenCalledWith("conversation_1_2");
+      expect(mockSocket.to().emit).toHaveBeenCalledWith("typing:stop", {
+        userId: 1,
+        recipientId: 2,
       });
     });
 
-    it("should reset timer when user types again", () => {
-      const typingData = {
-        userId: 1,
-        recipientId: 2,
-        userName: "John",
-      };
-
-      socketHandler.handleConnection(mockSocket);
-      const typingHandler = mockSocket.on.mock.calls.find(
-        (call: any) => call[0] === "typing:start"
-      )[1];
-
-      // First typing
-      typingHandler(typingData);
-
-      // Wait 3 seconds
-      jest.advanceTimersByTime(3000);
-
-      // Type again (should reset timer)
-      typingHandler(typingData);
-
-      // Wait another 2 seconds (total 5 from second typing start)
-      jest.advanceTimersByTime(2000);
-
-      // Should have 2 typing:start events but no typing:stop yet
-      let typingStartCalls = mockSocket.broadcast.emit.mock.calls.filter(
-        (call: any) => call[0] === "typing:start"
-      );
-      let typingStopCalls = mockSocket.broadcast.emit.mock.calls.filter(
-        (call: any) => call[0] === "typing:stop"
-      );
-
-      expect(typingStartCalls).toHaveLength(2);
-      expect(typingStopCalls).toHaveLength(0);
-
-      // Wait the final 3 seconds to complete the 5 second timeout from the second typing
-      jest.advanceTimersByTime(3000);
-
-      // Now we should have the typing:stop event
-      typingStopCalls = mockSocket.broadcast.emit.mock.calls.filter(
-        (call: any) => call[0] === "typing:stop"
-      );
-
-      expect(typingStopCalls).toHaveLength(1);
-    });
-  });
-
-  describe("typing:stop event", () => {
-    it("should broadcast typing stop to other clients", () => {
-      const typingData = {
-        userId: 1,
-        recipientId: 2,
-        userName: "John",
-      };
-
-      socketHandler.handleConnection(mockSocket);
-      const stopHandler = mockSocket.on.mock.calls.find(
-        (call: any) => call[0] === "typing:stop"
-      )[1];
-
-      stopHandler(typingData);
-
-      expect(mockSocket.broadcast.emit).toHaveBeenCalledWith("typing:stop", {
-        userId: typingData.userId,
-        recipientId: typingData.recipientId,
-      });
-    });
-
-    it("should clear timeout when user manually stops typing", () => {
+    test("should auto-stop typing after timeout", () => {
       jest.useFakeTimers();
 
       const typingData = {
         userId: 1,
         recipientId: 2,
-        userName: "John",
+        userName: "User 1",
       };
 
-      socketHandler.handleConnection(mockSocket);
-      const startHandler = mockSocket.on.mock.calls.find(
-        (call: any) => call[0] === "typing:start"
-      )[1];
-      const stopHandler = mockSocket.on.mock.calls.find(
-        (call: any) => call[0] === "typing:stop"
-      )[1];
+      typingStartCallback(typingData);
 
-      // Start typing
-      startHandler(typingData);
-
-      // Manually stop after 2 seconds
-      jest.advanceTimersByTime(2000);
-      stopHandler(typingData);
-
-      // Wait another 5 seconds
+      // Fast-forward time by 5 seconds
       jest.advanceTimersByTime(5000);
 
-      // Should only have one stop event (the manual one)
-      const stopCalls = mockSocket.broadcast.emit.mock.calls.filter(
-        (call: any) => call[0] === "typing:stop"
-      );
-
-      expect(stopCalls).toHaveLength(1);
+      expect(mockSocket.to).toHaveBeenCalledWith("conversation_1_2");
+      expect(mockSocket.to().emit).toHaveBeenCalledWith("typing:stop", {
+        userId: 1,
+        recipientId: 2,
+      });
 
       jest.useRealTimers();
     });
+
+    test("should clear typing timeout on manual stop", () => {
+      jest.useFakeTimers();
+
+      const typingData = {
+        userId: 1,
+        recipientId: 2,
+        userName: "User 1",
+      };
+
+      typingStartCallback(typingData);
+      
+      // Clear all mock calls after start
+      mockSocket.to.mockClear();
+      (mockSocket.to() as any).emit.mockClear();
+
+      // Manually stop before timeout
+      typingStopCallback(typingData);
+
+      // Capture how many times emit was called for the manual stop
+      const manualStopCalls = (mockSocket.to() as any).emit.mock.calls.length;
+
+      // Fast-forward time past the timeout
+      jest.advanceTimersByTime(5000);
+
+      // Should still have same number of calls (no additional auto-stop)
+      expect((mockSocket.to() as any).emit).toHaveBeenCalledTimes(manualStopCalls);
+
+      jest.useRealTimers();
+    });
+
+    test("should handle multiple users typing in same room", () => {
+      const user1Data = {
+        userId: 1,
+        recipientId: 2,
+        userName: "User 1",
+      };
+
+      const user2Data = {
+        userId: 3,
+        recipientId: 2,
+        userName: "User 3",
+      };
+
+      typingStartCallback(user1Data);
+      typingStartCallback(user2Data);
+
+      // Both should trigger broadcasts
+      expect(mockSocket.to).toHaveBeenCalledWith("conversation_1_2");
+      expect(mockSocket.to).toHaveBeenCalledWith("conversation_2_3");
+    });
   });
 
-  describe("disconnect event", () => {
-    it("should log disconnection", () => {
-      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+  describe("Disconnection handling", () => {
+    test("should clean up typing state on disconnect", () => {
+      jest.useFakeTimers();
 
-      socketHandler.handleConnection(mockSocket);
-      const disconnectHandler = mockSocket.on.mock.calls.find(
-        (call: any) => call[0] === "disconnect"
+      socketHandler.handleConnection(mockSocket as any);
+      
+      // Set user ID
+      mockSocket.userId = 1;
+
+      const typingStartCallback = mockSocket.on.mock.calls.find(
+        (call) => call[0] === "typing:start"
+      )[1];
+      
+      const disconnectCallback = mockSocket.on.mock.calls.find(
+        (call) => call[0] === "disconnect"
       )[1];
 
-      disconnectHandler();
+      // Start typing
+      const typingData = {
+        userId: 1,
+        recipientId: 2,
+        userName: "User 1",
+      };
+      typingStartCallback(typingData);
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        "Client disconnected:",
-        "test-socket-id"
-      );
+      // Clear previous calls
+      mockSocket.to.mockClear();
 
-      consoleSpy.mockRestore();
+      // Disconnect
+      disconnectCallback();
+
+      // Should emit typing stop
+      expect(mockSocket.to).toHaveBeenCalledWith("conversation_1_2");
+      expect(mockSocket.to().emit).toHaveBeenCalledWith("typing:stop", {
+        userId: 1,
+        recipientId: 0,
+      });
+
+      jest.useRealTimers();
+    });
+
+    test("should handle disconnect without typing", () => {
+      socketHandler.handleConnection(mockSocket as any);
+      
+      const disconnectCallback = mockSocket.on.mock.calls.find(
+        (call) => call[0] === "disconnect"
+      )[1];
+
+      // Disconnect without any typing activity
+      expect(() => disconnectCallback()).not.toThrow();
+    });
+  });
+
+  describe("Edge cases", () => {
+    test("should handle typing stop without prior start", () => {
+      socketHandler.handleConnection(mockSocket as any);
+      
+      const typingStopCallback = mockSocket.on.mock.calls.find(
+        (call) => call[0] === "typing:stop"
+      )[1];
+
+      const typingData = {
+        userId: 1,
+        recipientId: 2,
+        userName: "User 1",
+      };
+
+      // Should not throw
+      expect(() => typingStopCallback(typingData)).not.toThrow();
+    });
+
+    test("should handle multiple typing starts from same user", () => {
+      jest.useFakeTimers();
+
+      socketHandler.handleConnection(mockSocket as any);
+      
+      const typingStartCallback = mockSocket.on.mock.calls.find(
+        (call) => call[0] === "typing:start"
+      )[1];
+
+      const typingData = {
+        userId: 1,
+        recipientId: 2,
+        userName: "User 1",
+      };
+
+      // Start typing twice
+      typingStartCallback(typingData);
+      jest.advanceTimersByTime(2000);
+      
+      // Clear previous mock calls before second typing start
+      mockSocket.to.mockClear();
+      (mockSocket.to() as any).emit.mockClear();
+      
+      typingStartCallback(typingData);
+
+      // Clear emit calls after second start
+      mockSocket.to.mockClear();
+      (mockSocket.to() as any).emit.mockClear();
+
+      // Advance past original timeout (3 more seconds to reach 5 seconds from first start)
+      jest.advanceTimersByTime(3000);
+
+      // Should not emit stop (timeout was reset by second start)
+      expect((mockSocket.to() as any).emit).not.toHaveBeenCalled();
+
+      // Advance to new timeout (2 more seconds to reach 5 seconds from second start)
+      jest.advanceTimersByTime(2000);
+
+      // Now should emit stop
+      expect((mockSocket.to() as any).emit).toHaveBeenCalledWith("typing:stop", {
+        userId: 1,
+        recipientId: 2,
+      });
+
+      jest.useRealTimers();
     });
   });
 });

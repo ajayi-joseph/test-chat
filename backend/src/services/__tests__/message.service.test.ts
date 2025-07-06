@@ -1,129 +1,230 @@
-import { Request, Response } from 'express';
-import { MessageService } from '../../services/message.service';
+import { MessageService } from "../message.service";
+import { CreateMessageDto, Message, MessageType } from "../../types";
+import { generateMessageId } from "../../utils/idGenerator.utils";
+import { createMockConversation } from "../../mocks/conversation.mocks";
 
-// Mock MessageService
-jest.mock('../../services/message.service');
+// Mock the dependencies
+jest.mock("../../utils/idGenerator.utils");
+jest.mock("../../mocks/conversation.mocks");
 
-describe('messageRoutes', () => {
-  let mockService: jest.Mocked<MessageService>;
-  let mockRequest: Partial<Request>;
-  let mockResponse: Partial<Response>;
-  let router: any;
+describe("MessageService", () => {
+  let messageService: MessageService;
+  let mockGenerateMessageId: jest.MockedFunction<typeof generateMessageId>;
+  let mockCreateMockConversation: jest.MockedFunction<typeof createMockConversation>;
 
   beforeEach(() => {
-    // Create mock service
-    mockService = {
-      getConversation: jest.fn(),
-      addMessage: jest.fn(),
-    } as any;
+    // Clear all mocks
+    jest.clearAllMocks();
 
-    // Create mock response
-    mockResponse = {
-      json: jest.fn(),
-      status: jest.fn().mockReturnThis(),
-    };
+    // Setup mocks
+    mockGenerateMessageId = generateMessageId as jest.MockedFunction<typeof generateMessageId>;
+    mockCreateMockConversation = createMockConversation as jest.MockedFunction<typeof createMockConversation>;
 
-    // Get router with mocked service
-    router = messageRoutes(mockService);
+    // Mock ID generator to return predictable IDs
+    let idCounter = 0;
+    mockGenerateMessageId.mockImplementation(() => `msg-${++idCounter}`);
+
+    // Mock conversation creator
+    mockCreateMockConversation.mockImplementation((userId1: number, userId2: number) => [
+      {
+        senderId: userId1,
+        recipientId: userId2,
+        content: "Hey! How are you?",
+        timestamp: new Date("2020-01-07T20:20:00.000Z").toISOString(),
+      },
+      {
+        senderId: userId2,
+        recipientId: userId1,
+        content: "I'm good, thanks! You?",
+        timestamp: new Date("2020-01-07T20:21:00.000Z").toISOString(),
+      },
+    ]);
+
+    // Create new service instance
+    messageService = new MessageService();
   });
 
-  describe('GET /api/messages', () => {
-    it('should return messages for valid user IDs', async () => {
-      const mockMessages = [
-        { id: '1', senderId: 1, recipientId: 2, content: 'Hello' },
-        { id: '2', senderId: 2, recipientId: 1, content: 'Hi' },
-      ];
-      mockService.getConversation.mockReturnValue(mockMessages as any);
+  describe("getConversation", () => {
+    test("should return conversation with system message and mock messages on first call", () => {
+      const userId1 = 1;
+      const userId2 = 2;
 
-      mockRequest = {
-        query: { userId: '1', recipientId: '2' },
-      };
+      const messages = messageService.getConversation(userId1, userId2);
 
-      // Find the GET handler
-      const handler = router.stack.find((layer: any) => 
-        layer.route?.path === '/' && layer.route?.methods.get
-      ).route.stack[0].handle;
+      // Should have system message + 2 mock messages
+      expect(messages).toHaveLength(3);
 
-      await handler(mockRequest, mockResponse);
+      // Check system message
+      expect(messages[0]).toEqual({
+        id: "msg-1",
+        senderId: MessageType.SYSTEM,
+        recipientId: 0,
+        content: "You matched ❤️",
+        timestamp: new Date("2020-01-07T20:18:00.000Z").toISOString(),
+      });
 
-      expect(mockService.getConversation).toHaveBeenCalledWith(1, 2);
-      expect(mockResponse.json).toHaveBeenCalledWith({ messages: mockMessages });
+      // Check mock messages
+      expect(messages[1]).toMatchObject({
+        id: "msg-2",
+        senderId: userId1,
+        recipientId: userId2,
+        content: "Hey! How are you?",
+      });
+
+      expect(messages[2]).toMatchObject({
+        id: "msg-3",
+        senderId: userId2,
+        recipientId: userId1,
+        content: "I'm good, thanks! You?",
+      });
+
+      // Verify mocks were called
+      expect(mockCreateMockConversation).toHaveBeenCalledWith(userId1, userId2);
+      expect(mockGenerateMessageId).toHaveBeenCalledTimes(3);
     });
 
-    it('should return 400 if userId is missing', async () => {
-      mockRequest = {
-        query: { recipientId: '2' },
-      };
+    test("should return same conversation on subsequent calls", () => {
+      const userId1 = 1;
+      const userId2 = 2;
 
-      const handler = router.stack.find((layer: any) => 
-        layer.route?.path === '/' && layer.route?.methods.get
-      ).route.stack[0].handle;
+      const firstCall = messageService.getConversation(userId1, userId2);
+      const secondCall = messageService.getConversation(userId1, userId2);
 
-      await handler(mockRequest, mockResponse);
-
-      expect(mockResponse.status).toHaveBeenCalledWith(400);
-      expect(mockResponse.json).toHaveBeenCalledWith({
-        error: 'Both userId and recipientId are required as query parameters',
-      });
+      expect(firstCall).toBe(secondCall); // Same reference
+      expect(mockCreateMockConversation).toHaveBeenCalledTimes(1); // Only called once
     });
 
-    it('should return 400 if recipientId is missing', async () => {
-      mockRequest = {
-        query: { userId: '1' },
-      };
+    test("should handle reversed user IDs correctly", () => {
+      const userId1 = 1;
+      const userId2 = 2;
 
-      const handler = router.stack.find((layer: any) => 
-        layer.route?.path === '/' && layer.route?.methods.get
-      ).route.stack[0].handle;
+      const conversation1 = messageService.getConversation(userId1, userId2);
+      const conversation2 = messageService.getConversation(userId2, userId1);
 
-      await handler(mockRequest, mockResponse);
-
-      expect(mockResponse.status).toHaveBeenCalledWith(400);
-      expect(mockResponse.json).toHaveBeenCalledWith({
-        error: 'Both userId and recipientId are required as query parameters',
-      });
+      expect(conversation1).toBe(conversation2); // Same conversation
+      expect(mockCreateMockConversation).toHaveBeenCalledTimes(1);
     });
 
-    it('should return 400 if userId is not a number', async () => {
-      mockRequest = {
-        query: { userId: 'abc', recipientId: '2' },
-      };
+    test("should create separate conversations for different user pairs", () => {
+      const conversation1 = messageService.getConversation(1, 2);
+      const conversation2 = messageService.getConversation(3, 4);
 
-      const handler = router.stack.find((layer: any) => 
-        layer.route?.path === '/' && layer.route?.methods.get
-      ).route.stack[0].handle;
-
-      await handler(mockRequest, mockResponse);
-
-      expect(mockResponse.status).toHaveBeenCalledWith(400);
-      expect(mockResponse.json).toHaveBeenCalledWith({
-        error: 'Both userId and recipientId are required as query parameters',
-      });
-    });
-
-    it('should handle service errors gracefully', async () => {
-      mockService.getConversation.mockImplementation(() => {
-        throw new Error('Database error');
-      });
-
-      mockRequest = {
-        query: { userId: '1', recipientId: '2' },
-      };
-
-      const handler = router.stack.find((layer: any) => 
-        layer.route?.path === '/' && layer.route?.methods.get
-      ).route.stack[0].handle;
-
-      await handler(mockRequest, mockResponse);
-
-      expect(mockResponse.status).toHaveBeenCalledWith(500);
-      expect(mockResponse.json).toHaveBeenCalledWith({
-        error: 'Failed to retrieve messages',
-      });
+      expect(conversation1).not.toBe(conversation2);
+      expect(mockCreateMockConversation).toHaveBeenCalledTimes(2);
+      expect(mockCreateMockConversation).toHaveBeenCalledWith(1, 2);
+      expect(mockCreateMockConversation).toHaveBeenCalledWith(3, 4);
     });
   });
+
+  describe("addMessage", () => {
+    test("should add message to existing conversation", () => {
+      const userId1 = 1;
+      const userId2 = 2;
+
+      // Initialize conversation
+      const initialMessages = messageService.getConversation(userId1, userId2);
+      const initialLength = initialMessages.length;
+
+      // Add new message
+      const messageDto: CreateMessageDto = {
+        senderId: userId1,
+        recipientId: userId2,
+        content: "New message!",
+      };
+
+      const newMessage = messageService.addMessage(messageDto);
+
+      // Check returned message
+      expect(newMessage).toMatchObject({
+        id: expect.stringMatching(/^msg-\d+$/),
+        senderId: userId1,
+        recipientId: userId2,
+        content: "New message!",
+        timestamp: expect.any(String),
+      });
+
+      // Verify message was added to conversation
+      const updatedMessages = messageService.getConversation(userId1, userId2);
+      expect(updatedMessages).toHaveLength(initialLength + 1);
+      expect(updatedMessages[updatedMessages.length - 1]).toEqual(newMessage);
+    });
+
+    test("should create new conversation if it doesn't exist", () => {
+      const messageDto: CreateMessageDto = {
+        senderId: 5,
+        recipientId: 6,
+        content: "First message!",
+      };
+
+      // Add message to non-existent conversation
+      const newMessage = messageService.addMessage(messageDto);
+
+      // Get conversation
+      const messages = messageService.getConversation(5, 6);
+
+      // Should only have the new message (no system message or mocks)
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toEqual(newMessage);
+    });
+
+    test("should work with reversed user IDs", () => {
+      const userId1 = 1;
+      const userId2 = 2;
+
+      // Initialize conversation
+      messageService.getConversation(userId1, userId2);
+
+      // Add message with reversed IDs
+      const messageDto: CreateMessageDto = {
+        senderId: userId2,
+        recipientId: userId1,
+        content: "Reply message!",
+      };
+
+      const newMessage = messageService.addMessage(messageDto);
+
+      // Should be added to same conversation
+      const messages = messageService.getConversation(userId1, userId2);
+      expect(messages[messages.length - 1]).toEqual(newMessage);
+    });
+
+    test("should generate unique IDs for each message", () => {
+      const messageDto1: CreateMessageDto = {
+        senderId: 1,
+        recipientId: 2,
+        content: "Message 1",
+      };
+
+      const messageDto2: CreateMessageDto = {
+        senderId: 1,
+        recipientId: 2,
+        content: "Message 2",
+      };
+
+      const message1 = messageService.addMessage(messageDto1);
+      const message2 = messageService.addMessage(messageDto2);
+
+      expect(message1.id).not.toEqual(message2.id);
+      expect(mockGenerateMessageId).toHaveBeenCalledTimes(2);
+    });
+
+    test("should add timestamp to message", () => {
+      const now = new Date("2024-01-01T12:00:00.000Z");
+      jest.useFakeTimers();
+      jest.setSystemTime(now);
+
+      const messageDto: CreateMessageDto = {
+        senderId: 1,
+        recipientId: 2,
+        content: "Test message",
+      };
+
+      const message = messageService.addMessage(messageDto);
+
+      expect(message.timestamp).toEqual(now.toISOString());
+
+      jest.useRealTimers();
+    });
+  });
+
 });
-
-function messageRoutes(mockService: jest.Mocked<MessageService>): any {
-    throw new Error('Function not implemented.');
-}

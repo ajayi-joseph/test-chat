@@ -1,207 +1,153 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { useSocket } from './useSocket';
+
+// Mock the modules first
+vi.mock('../services/socket.service');
+vi.mock('../store/user.store');
+vi.mock('../store/messages.store');
+
+// Import after mocking
 import { socketService } from '../services/socket.service';
+import useUserStore from '../store/user.store';
 import useMessagesStore from '../store/messages.store';
 
-// Mock the socket service
-vi.mock('../services/socket.service', () => ({
-  socketService: {
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-    on: vi.fn(),
-    off: vi.fn(),
-    emit: vi.fn(),
-    isConnected: vi.fn(),
-  },
-}));
-
-// Mock the messages store
-vi.mock('../store/messages.store', () => ({
-  default: vi.fn(),
-}));
-
 describe('useSocket', () => {
+  const mockUnsubscribe = vi.fn();
   const mockAddMessage = vi.fn();
-  
+  const mockCurrentUser = { id: 1, name: 'John Doe' };
+  const mockCurrentRecipient = { id: 2, name: 'Jane Smith' };
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     
-    // Setup store mock to return our mock function
-    vi.mocked(useMessagesStore).mockReturnValue(mockAddMessage);
-    
-    // Default socket service behavior
+    // Setup user store mock - it's called with a selector function
+    vi.mocked(useUserStore).mockImplementation((selector?: any) => {
+      const state = {
+        currentUser: mockCurrentUser,
+        currentRecipient: mockCurrentRecipient,
+      };
+      return selector ? selector(state) : state;
+    });
+
+    // Setup socket service mocks
+    vi.mocked(socketService.connect).mockImplementation(() => ({} as any));
     vi.mocked(socketService.isConnected).mockReturnValue(false);
+    vi.mocked(socketService.onNewMessage).mockReturnValue(mockUnsubscribe);
+    vi.mocked(socketService.joinConversation).mockImplementation(() => {});
+    vi.mocked(socketService.leaveConversation).mockImplementation(() => {});
+    vi.mocked(socketService.sendMessage).mockImplementation(() => {});
+
+    // Setup messages store mock
+    vi.mocked(useMessagesStore.getState).mockReturnValue({
+      conversations: {},
+      setConversationMessages: vi.fn(),
+      addMessage: mockAddMessage,
+    } as any);
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it('connects to socket on mount', () => {
+  it('should connect to socket on mount', () => {
     renderHook(() => useSocket());
 
-    expect(socketService.connect).toHaveBeenCalledTimes(1);
+    expect(socketService.connect).toHaveBeenCalledWith(
+      'http://localhost:3001',
+      mockCurrentUser.id
+    );
   });
 
-  it('sets up message listener on mount', () => {
-    renderHook(() => useSocket());
+  it('should update connection status', () => {
+    const { result } = renderHook(() => useSocket());
 
-    expect(socketService.on).toHaveBeenCalledWith('message:new', expect.any(Function));
-  });
+    expect(result.current.isConnected).toBe(false);
 
-  it('checks connection status initially after 100ms', async () => {
+    // Mock connection established
     vi.mocked(socketService.isConnected).mockReturnValue(true);
 
-    const { result } = renderHook(() => useSocket());
-
-    // Initially disconnected
-    expect(result.current.isConnected).toBe(false);
-
-    // Fast forward 100ms
     act(() => {
-      vi.advanceTimersByTime(100);
+      vi.advanceTimersByTime(1000);
     });
 
     expect(result.current.isConnected).toBe(true);
   });
 
-  it('monitors connection status every 500ms', () => {
-    vi.mocked(socketService.isConnected)
-      .mockReturnValueOnce(false)
-      .mockReturnValueOnce(false)
-      .mockReturnValueOnce(true);
+  it('should join conversation when connected', () => {
+    const { rerender } = renderHook(() => useSocket());
 
-    const { result } = renderHook(() => useSocket());
+    // Initially not connected
+    expect(socketService.joinConversation).not.toHaveBeenCalled();
 
-    expect(result.current.isConnected).toBe(false);
+    // Simulate connection
+    vi.mocked(socketService.isConnected).mockReturnValue(true);
 
-    // After 500ms
+    // Trigger the periodic check
     act(() => {
-      vi.advanceTimersByTime(500);
+      vi.advanceTimersByTime(1000);
     });
-    expect(result.current.isConnected).toBe(false);
 
-    // After another 500ms
-    act(() => {
-      vi.advanceTimersByTime(500);
-    });
-    expect(result.current.isConnected).toBe(true);
+    // Force a re-render to trigger the effect with updated isConnected
+    rerender();
+
+    expect(socketService.joinConversation).toHaveBeenCalledWith(
+      mockCurrentUser.id, 
+      mockCurrentRecipient.id
+    );
   });
 
-  it('handles incoming messages', () => {
+  it('should handle new messages', () => {
     renderHook(() => useSocket());
 
     // Get the message handler that was registered
-    const messageHandler = vi.mocked(socketService.on).mock.calls[0][1];
+    const messageHandler = vi.mocked(socketService.onNewMessage).mock.calls[0][0];
 
-    const mockMessage = {
-      id: '123',
-      senderId: 1,
-      recipientId: 2,
+    const incomingMessage = {
+      id: 123,
+      senderId: 2,
+      recipientId: 1,
       content: 'Hello!',
-      timestamp: '2024-01-01T10:00:00Z',
+      timestamp: '2024-01-01T00:00:00Z',
     };
 
-    // Simulate receiving a message
     act(() => {
-      messageHandler(mockMessage);
+      messageHandler(incomingMessage);
     });
 
     expect(mockAddMessage).toHaveBeenCalledWith({
-      id: 123, // Note: converted to number
-      senderId: 1,
-      recipientId: 2,
+      id: '123',
+      senderId: 2,
+      recipientId: 1,
       content: 'Hello!',
-      timestamp: '2024-01-01T10:00:00Z',
+      timestamp: '2024-01-01T00:00:00Z',
     });
   });
 
-  it('sends messages through socket service', () => {
+  it('should send messages', () => {
     const { result } = renderHook(() => useSocket());
 
-    const messageData = {
-      senderId: 1,
-      recipientId: 2,
-      content: 'Test message',
-    };
-
     act(() => {
-      result.current.sendMessage(messageData);
+      result.current.sendMessage({
+        senderId: mockCurrentUser.id,
+        recipientId: mockCurrentRecipient.id,
+        content: 'Test message',
+      });
     });
 
-    expect(socketService.emit).toHaveBeenCalledWith('message:send', messageData);
+    expect(socketService.sendMessage).toHaveBeenCalledWith(
+      mockCurrentUser.id,
+      mockCurrentRecipient.id,
+      'Test message'
+    );
   });
 
-  it('cleans up on unmount', () => {
+  it('should cleanup on unmount', () => {
     const { unmount } = renderHook(() => useSocket());
 
     unmount();
 
-    // Should remove message listener
-    expect(socketService.off).toHaveBeenCalledWith('message:new');
-    
-    // Interval should be cleared (we can't directly test this, but no errors should occur)
-  });
-
-  it('handles messages with string IDs', () => {
-    renderHook(() => useSocket());
-
-    const messageHandler = vi.mocked(socketService.on).mock.calls[0][1];
-
-    const mockMessage = {
-      id: 'msg_123_abc', // Non-numeric string
-      senderId: 1,
-      recipientId: 2,
-      content: 'Hello!',
-      timestamp: '2024-01-01T10:00:00Z',
-    };
-
-    // Mock console.log to verify logging
-    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-
-    act(() => {
-      messageHandler(mockMessage);
-    });
-
-    expect(consoleLogSpy).toHaveBeenCalledWith('New message received:', mockMessage);
-    
-    // parseInt('msg_123_abc') returns NaN
-    expect(mockAddMessage).toHaveBeenCalledWith({
-      id: NaN,
-      senderId: 1,
-      recipientId: 2,
-      content: 'Hello!',
-      timestamp: '2024-01-01T10:00:00Z',
-    });
-
-    consoleLogSpy.mockRestore();
-  });
-
-  it('memoizes sendMessage callback', () => {
-    const { result, rerender } = renderHook(() => useSocket());
-
-    const firstRender = result.current.sendMessage;
-
-    // Rerender
-    rerender();
-
-    expect(result.current.sendMessage).toBe(firstRender);
-  });
-
-  it('does not recreate effect on every render', () => {
-    const { rerender } = renderHook(() => useSocket());
-
-    expect(socketService.connect).toHaveBeenCalledTimes(1);
-    expect(socketService.on).toHaveBeenCalledTimes(1);
-
-    // Rerender multiple times
-    rerender();
-    rerender();
-
-    // Should still only be called once
-    expect(socketService.connect).toHaveBeenCalledTimes(1);
-    expect(socketService.on).toHaveBeenCalledTimes(1);
+    expect(mockUnsubscribe).toHaveBeenCalled();
   });
 });
