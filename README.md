@@ -21,6 +21,7 @@ cd frontend && npm run dev   # Port 5173
 
 ## 🎬 Demo
 
+![chat-demo](https://github.com/user-attachments/assets/763449cf-7274-49f5-8a99-285c3f9fe322)
 
 *See the real-time chat in action with typing indicators, message grouping, and instant delivery*
 
