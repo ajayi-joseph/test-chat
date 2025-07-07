@@ -8,8 +8,14 @@ export interface Message {
   type?: MessageType;
 }
 
-export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
-export type MessageType = 'text' | 'image' | 'system';
+export type MessageStatus =
+  | "sending"
+  | "sent"
+  | "delivered"
+  | "read"
+  | "failed";
+  
+export type MessageType = "text" | "image" | "system";
 
 export interface MessageGroup {
   messages: Message[];
@@ -28,9 +34,3 @@ export type MessageInput = {
   recipientId: number;
   content: string;
 };
-
-export interface MessageUpdatePayload {
-  messageId: string;
-  status?: MessageStatus;
-  content?: string;
-}

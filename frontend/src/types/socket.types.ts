@@ -1,4 +1,4 @@
-import type { Message, MessageSendPayload, MessageUpdatePayload } from './message.types';
+import type { Message, MessageSendPayload } from './message.types';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -6,10 +6,6 @@ export interface SocketEvents {
   // Message events
   'message:new': (message: Message) => void;
   'message:send': (data: MessageSendPayload) => void;
-  'message:update': (data: MessageUpdatePayload) => void;
-  'message:delete': (messageId: string) => void;
-  'message:delivered': (messageId: string) => void;
-  'message:read': (data: { messageId: string; userId: number }) => void;
   
   // Typing events
   'typing:start': (data: TypingEvent) => void;

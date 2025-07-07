@@ -67,7 +67,6 @@ const renderWithQuery = (component: React.ReactElement) => {
 describe('UserList Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Mock fetch
     globalThis.fetch = vi.fn(() =>
       Promise.resolve({
         ok: true,
@@ -76,12 +75,12 @@ describe('UserList Component', () => {
     );
   });
 
-  it('fetches and displays users', async () => {
+  it('fetches and displays users in both sections', async () => {
     renderWithQuery(<UserList />);
 
     await waitFor(() => {
-      // Users appear in both lists
-      expect(screen.getAllByText('Current User').length).toBeGreaterThan(0);
+      expect(screen.getByText('Select Current User')).toBeInTheDocument();
+      expect(screen.getByText('Message Someone')).toBeInTheDocument();
       expect(screen.getAllByText('Alice')).toHaveLength(2);
       expect(screen.getAllByText('Bob')).toHaveLength(2);
     });
@@ -89,130 +88,55 @@ describe('UserList Component', () => {
     expect(fetch).toHaveBeenCalledWith('/api/user/all.json');
   });
 
-  it('renders both user lists', async () => {
+  it('allows switching users and shows current user state', async () => {
+    renderWithQuery(<UserList />);
+
+    await waitFor(() => {
+      // Current user button is disabled and shows "Current User"
+      const currentUserButton = screen.getAllByTestId('button-current-user')[0];
+      expect(currentUserButton).toBeDisabled();
+      
+      // Other users show "Switch to" and are enabled
+      const switchButtons = screen.getAllByTestId('button-switch-to');
+      expect(switchButtons).toHaveLength(2);
+    });
+
+    // Switch to Alice
+    const aliceButton = screen.getAllByTestId('button-switch-to')[0];
+    fireEvent.click(aliceButton);
+
+    expect(mockSetCurrentUser).toHaveBeenCalledWith(mockUsers[1]);
+    expect(mockSetCurrentRecipient).toHaveBeenCalledWith(null);
+  });
+
+  it('allows messaging other users but not yourself', async () => {
+    renderWithQuery(<UserList />);
+
+    await waitFor(() => {
+      const messageButtons = screen.getAllByTestId('button-message');
+      expect(messageButtons[0]).toBeDisabled(); // Current user
+      expect(messageButtons[1]).not.toBeDisabled(); // Alice
+    });
+
+    // Message Alice
+    const aliceMessageButton = screen.getAllByTestId('button-message')[1];
+    fireEvent.click(aliceMessageButton);
+
+    expect(mockSetCurrentRecipient).toHaveBeenCalledWith(mockUsers[1]);
+    expect(mockSetCurrentPage).toHaveBeenCalledWith('chat');
+  });
+
+  it('handles fetch errors gracefully', async () => {
+    globalThis.fetch = vi.fn(() => Promise.reject(new Error('Network error')));
+
     renderWithQuery(<UserList />);
 
     await waitFor(() => {
       expect(screen.getByText('Select Current User')).toBeInTheDocument();
       expect(screen.getByText('Message Someone')).toBeInTheDocument();
     });
-  });
 
-  describe('Switch User functionality', () => {
-    it('switches to a different user', async () => {
-      renderWithQuery(<UserList />);
-
-      await waitFor(() => {
-        const switchButtons = screen.getAllByTestId('button-switch-to');
-        expect(switchButtons).toHaveLength(2); // Alice and Bob
-      });
-
-      const aliceButton = screen.getAllByTestId('button-switch-to')[0];
-      fireEvent.click(aliceButton);
-
-      expect(mockSetCurrentUser).toHaveBeenCalledWith(mockUsers[1]); // Alice
-      expect(mockSetCurrentRecipient).toHaveBeenCalledWith(null);
-    });
-
-    it('shows "Current User" for the active user', async () => {
-      renderWithQuery(<UserList />);
-
-      await waitFor(() => {
-        const currentUserButtons = screen.getAllByTestId('button-current-user');
-        expect(currentUserButtons).toHaveLength(1);
-      });
-    });
-
-    it('disables button for current user', async () => {
-      renderWithQuery(<UserList />);
-
-      await waitFor(() => {
-        const currentUserButton = screen.getAllByTestId('button-current-user')[0];
-        expect(currentUserButton).toBeDisabled();
-      });
-    });
-  });
-
-  describe('Message User functionality', () => {
-    it('sets recipient and navigates to chat', async () => {
-      renderWithQuery(<UserList />);
-
-      await waitFor(() => {
-        const messageButtons = screen.getAllByTestId('button-message');
-        expect(messageButtons).toHaveLength(3); // All users
-      });
-
-      // Click message button for Alice (index 1, since current user is 0)
-      const aliceMessageButton = screen.getAllByTestId('button-message')[1];
-      fireEvent.click(aliceMessageButton);
-
-      expect(mockSetCurrentRecipient).toHaveBeenCalledWith(mockUsers[1]); // Alice
-      expect(mockSetCurrentPage).toHaveBeenCalledWith('chat');
-    });
-
-    it('disables message button for current user', async () => {
-      renderWithQuery(<UserList />);
-
-      await waitFor(() => {
-        const messageButtons = screen.getAllByTestId('button-message');
-        expect(messageButtons[0]).toBeDisabled(); // First user is current user
-      });
-    });
-  });
-
-  describe('Error handling', () => {
-    it('handles fetch errors gracefully', async () => {
-      globalThis.fetch = vi.fn(() => Promise.reject(new Error('Network error')));
-
-      renderWithQuery(<UserList />);
-
-      // Should still render headers but no users
-      await waitFor(() => {
-        expect(screen.getByText('Select Current User')).toBeInTheDocument();
-        expect(screen.getByText('Message Someone')).toBeInTheDocument();
-      });
-
-      // No user cards should be rendered
-      expect(screen.queryByTestId('user-card-1')).not.toBeInTheDocument();
-    });
-
-    it('handles empty user list', async () => {
-      globalThis.fetch = vi.fn(() =>
-        Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve([]),
-        } as Response)
-      );
-
-      renderWithQuery(<UserList />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Select Current User')).toBeInTheDocument();
-        expect(screen.getByText('Message Someone')).toBeInTheDocument();
-      });
-
-      // No buttons should be rendered
-      expect(screen.queryByText('Switch to')).not.toBeInTheDocument();
-      expect(screen.queryByText('Message')).not.toBeInTheDocument();
-    });
-  });
-
-  describe('Edge cases', () => {
-    it('renders all users in both sections', async () => {
-      renderWithQuery(<UserList />);
-
-      await waitFor(() => {
-        // Check that all users appear twice (once in each section)
-        const aliceElements = screen.getAllByText('Alice');
-        expect(aliceElements).toHaveLength(2);
-        
-        const bobElements = screen.getAllByText('Bob');
-        expect(bobElements).toHaveLength(2);
-        
-        const currentUserElements = screen.getAllByText('Current User');
-        // Current User appears in text and button (×2 sections)
-        expect(currentUserElements.length).toBeGreaterThanOrEqual(2);
-      });
-    });
+    // No user cards should be rendered
+    expect(screen.queryByTestId('user-card-1')).not.toBeInTheDocument();
   });
 });

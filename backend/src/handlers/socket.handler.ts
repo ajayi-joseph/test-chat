@@ -35,9 +35,6 @@ export class SocketHandler {
 
       console.log(`User ${userId} identified on socket ${socket.id}`);
 
-      // Auto-join any conversations this user was part of
-      // In a real app, you might want to fetch active conversations from DB
-      // For now, just acknowledge identification
       socket.emit("user:identified", { userId, socketId: socket.id });
     });
 

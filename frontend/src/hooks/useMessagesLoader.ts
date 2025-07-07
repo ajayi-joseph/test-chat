@@ -15,15 +15,14 @@ export const useMessagesLoader = ({
   const loadingRef = useRef(false);
 
   useEffect(() => {
+    const { setConversationMessages } = useMessagesStore.getState();
+    
     if (!recipientId || recipientId === 0 || loadingRef.current) return;
 
     const conversationKey = getConversationKey(userId, recipientId);
 
     const loadMessages = async () => {
       loadingRef.current = true;
-
-      // Get store actions
-      const { setConversationMessages } = useMessagesStore.getState();
 
       try {
         const response = await fetch(

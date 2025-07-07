@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 import useMessagesStore, {
   getConversationKey,
 } from "../../../../store/messages.store";
@@ -8,32 +8,25 @@ import { useTyping } from "../../../../hooks/useTyping";
 import { useMessagesLoader } from "../../../../hooks/useMessagesLoader";
 import { ChatContainer } from "./_components/chat-container/ChatContainer";
 import { useChatActions } from "../../../../hooks/useChatAction";
+import type { Message } from "../../../../types";
 
-// Stable empty array to prevent re-renders
 
 const ChatTab = () => {
-  // Store selectors
-  const currentUser = useUserStore((state) => state.currentUser);
-  const currentRecipient = useUserStore((state) => state.currentRecipient);
+const currentUser = useUserStore((state) => state.currentUser);
+const currentRecipient = useUserStore((state) => state.currentRecipient);
 
-  // Calculate conversation key
-  const conversationKey = currentRecipient?.id
-    ? getConversationKey(currentUser.id, currentRecipient.id)
-    : null;
+const conversationKey = getConversationKey(currentUser.id, currentRecipient!.id);
 
-  // Get messages directly from store state with stable fallback
-  const messages = useMessagesStore(
-    useCallback(
-      (state) => {
-        if (!conversationKey) return [];
-        return state.conversations[conversationKey] || [];
-      },
-      [conversationKey]
-    )
-  );
+const EMPTY_MESSAGES: Message[] = [];
+
+// Get messages with stable fallback
+const messages = useMessagesStore(
+  (state) => state.conversations[conversationKey] || EMPTY_MESSAGES
+);
 
   // Hooks
   const { sendMessage } = useSocket();
+  
   const { typingUsers, startTyping, stopTyping } = useTyping(
     currentRecipient?.id
   );

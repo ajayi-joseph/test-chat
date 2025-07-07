@@ -28,6 +28,7 @@ export const useChatActions = ({
   const lastTypingRef = useRef<number>(0);
 
   const handleSendMessage = useCallback((content: string) => {
+    // Just some edge case checks :)
     if (!currentRecipient || !content.trim()) return;
 
     sendMessage({
