@@ -6,8 +6,8 @@ A modern real-time chat application built with React, TypeScript, Node.js, and S
 
 ```bash
 # Clone and install
-git clone [repository]
-cd web-lead-tech-test
+git clone [[repository](https://github.com/ajayi-joseph/test-chat)]
+cd test-chat
 
 # Install all dependencies
 cd backend && npm install
