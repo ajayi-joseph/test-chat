@@ -18,6 +18,18 @@ cd backend && npm run dev    # Port 3001
 cd frontend && npm run dev   # Port 5173
 ```
 
+
+## 🎬 Demo
+
+![Chat Application Demo](./recording/demo.gif)
+*See the real-time chat in action with typing indicators, message grouping, and instant delivery*
+
+### Features Demonstrated:
+- ⚡ Real-time message delivery
+- 💬 Live typing indicators
+- 👥 User switching
+- 📱 Message grouping by sender and time
+
 ## 🏗️ Architecture Overview
 
 ### Tech Stack
