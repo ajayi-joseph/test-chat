@@ -22,14 +22,6 @@ app.use(express.json());
 // Routes
 app.use("/api", createMessageRoutes(messageService));
 
-// Health check
-app.get("/health", (req, res) => {
-  res.json({ 
-    status: "ok", 
-    timestamp: new Date().toISOString(),
-    socketRooms: io.sockets.adapter.rooms.size,
-  });
-});
 
 // Initialize Socket.IO
 const io = createSocketServer(httpServer);

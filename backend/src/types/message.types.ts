@@ -12,13 +12,6 @@ export interface CreateMessageDto {
   content: string;
 }
 
-export interface MessageFilter {
-  senderId?: number;
-  recipientId?: number;
-  startDate?: string;
-  endDate?: string;
-}
-
 export enum MessageType {
   SYSTEM = 0,
   USER = 1,

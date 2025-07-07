@@ -99,7 +99,7 @@ export const useTyping = (recipientId?: number) => {
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
       }
-      // Don't call stopTyping here as it causes issues with deps
+      // removed stopTyping because of deps issue
     };
   }, []);
 

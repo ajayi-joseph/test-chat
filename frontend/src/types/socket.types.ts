@@ -31,12 +31,3 @@ export interface SocketError {
   message: string;
   details?: unknown;
 }
-
-export interface SocketConfig {
-  url: string;
-  reconnection?: boolean;
-  reconnectionAttempts?: number;
-  reconnectionDelay?: number;
-  timeout?: number;
-  auth?: Record<string, any>;
-}
